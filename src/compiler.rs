@@ -1,21 +1,20 @@
 include!("error.rs");
 
 fn split_code(tokens: &Vec<Tok>) -> Vec<Vec<Tok>> {
-    let mut code: Vec<Vec<Tok>> = Vec::new();
-    code.push(Vec::new());
+    let mut code = vec![Vec::new()];
 
-    let mut open_curly_count = 0;
+    let mut curly_count = 0;
     for tok in tokens {
-        if tok.typ == TokType::Eol && open_curly_count == 0 {
+        if tok.typ == TokType::Eol && curly_count == 0 {
             code.push(Vec::new());
             continue;
         }
 
         if tok.typ == TokType::OpenCurly {
-            open_curly_count += 1;
+            curly_count += 1;
         }
         else if tok.typ == TokType::CloseCurly {
-            open_curly_count -= 1;
+            curly_count -= 1;
         }
 
         let len = code.len() - 1;
@@ -39,8 +38,8 @@ fn type_to_str(typ: TokType) -> String {
     }
 }
 
-fn deduce_type(expr: &Vec<Tok>) -> TokType {
-    let expr_type: TokType = expr[0].typ.clone();
+fn check_expr(expr: &Vec<Tok>) -> TokType {
+    let expr_type = expr[0].typ.clone();
 
     for a in 0..expr.len() {
         if expr[a].typ == TokType::Op {
@@ -63,8 +62,11 @@ fn deduce_type(expr: &Vec<Tok>) -> TokType {
         }
 
         if expr[a].typ == TokType::OpenSquare {
-            if a != 0 {
+            if a != 0 && expr[a - 1].typ != TokType::Var {
                 error("arrays cannot be used in expressions");
+            }
+            if a > 0 && expr[a - 1].typ == TokType::Var {
+                return expr_type;
             }
 
             let rtn_tok: TokType = match expr[a + 1].typ {
@@ -98,19 +100,33 @@ fn deduce_type(expr: &Vec<Tok>) -> TokType {
 
 fn write_file_content(file: &mut String, code: &Vec<Vec<Tok>>) -> std::io::Result<()> {
     for a in 0..code.len() {
-        if code[a].len() == 0 {
+        if code[a].is_empty() {
             continue;
         }
 
         if code[a][0].typ == TokType::Set {
-            let var_type = deduce_type(&code[a][3..code[a].len()].to_vec());
-            file.push_str(format!("{} {} = ", type_to_str(var_type), code[a][1].val).as_str());
+            if code[a].len() == 1 || code[a][1].typ != TokType::Var {
+                error("expected variable name after 'set' keyword");
+            }
+            if code[a].len() == 2 || code[a][2].typ != TokType::Assign {
+                error("expected assignment operator after variable name");
+            }
+            if code[a].len() == 3  {
+                error("expected expression after assignment operator");
+            }
+
+            let var_type = check_expr(&code[a][3..code[a].len()].to_vec());
+            file.push_str(format!(
+                "{} {} = ",
+                type_to_str(var_type),
+                code[a][1].val
+            ).as_str());
 
             for b in 3..code[a].len() {
-                if code[a][b].typ == TokType::OpenSquare {
+                if code[a][b].typ == TokType::OpenSquare && code[a][b - 1].typ != TokType::Var {
                     file.push_str("{");
                 }
-                else if code[a][b].typ == TokType::CloseSquare {
+                else if code[a][b].typ == TokType::CloseSquare && code[a][b - 3].typ != TokType::Var {
                     file.push_str("}");
                 }
                 else {
@@ -120,67 +136,101 @@ fn write_file_content(file: &mut String, code: &Vec<Vec<Tok>>) -> std::io::Resul
 
             file.push_str(";\n\n");
         }
+        else if code[a].len() >= 2 && code[a][0].typ == TokType::Var &&
+            code[a][1].typ == TokType::Assign {
+            if code[a].len() == 2 {
+                error("expected expression after assingment operator");
+            }
+
+            for tok in &code[a] {
+                file.push_str(tok.val.as_str());
+            }
+
+            file.push_str(";\n\n");
+        }
         else if code[a][0].typ == TokType::If {
+            if code[a].len() == 1 || (code[a].len() == 2 && code[a][1].typ == TokType::OpenCurly) {
+                error("expected condition in if statement");
+            }
+            if code[a].len() == 2 && code[a][1].typ != TokType::OpenCurly {
+                error("expected open curly after if statement condition");
+            }
+
             file.push_str("if (");
 
             let mut open_curly_index = 1;
-            while code[a][open_curly_index].typ != TokType::OpenCurly {
-                let con_val: String = code[a][open_curly_index].val.clone() + " ";
+            while code[a][open_curly_index].typ != TokType::OpenCurly &&
+                open_curly_index < code[a].len() {
+                let con_val = code[a][open_curly_index].val.clone() + " ";
                 file.push_str(con_val.as_str());
+
                 open_curly_index += 1;
             }
 
             if open_curly_index == code[a].len() {
-                error("missing opening curly bracket");
+                error("missing opening curly in if statement");
             }
 
             file.push_str(") {\n");
 
-            let mut scope_content = String::from("");
+            let mut scope_content = "".to_string();
             write_file_content(
                 &mut scope_content,
                 &split_code(&code[a][open_curly_index + 1..code[a].len() - 1].to_vec())
             )?;
 
-            file.push_str(scope_content.as_str());
-            file.push_str("}\n\n");
+            file.push_str((scope_content + "}\n\n").as_str());
         }
-        else if code[a][0].typ == TokType::Else && code[a][1].typ == TokType::If {
+        else if code[a].len() >= 2 && code[a][0].typ == TokType::Else &&
+            code[a][1].typ == TokType::If {
             if a == 0 || (code[a - 1][0].typ != TokType::If && code[a - 1][1].typ != TokType::If) {
-                error("else if statements must come after an if or an else if statement");
+                error("else if statement must come after an if or an else if statement");
+            }
+            if code[a].len() == 2 || code[a].len() == 3 && code[a][2].typ == TokType::OpenCurly {
+                error("expected condition in else if statement");
+            }
+            if code[a].len() == 3 && code[a][2].typ != TokType::OpenCurly {
+                error("expected open curly after else if condition");
             }
 
             file.push_str("else if (");
 
             let mut open_curly_index = 2;
-            while code[a][open_curly_index].typ != TokType::OpenCurly {
-                let con_val: String = code[a][open_curly_index].val.clone() + " ";
+            while code[a][open_curly_index].typ != TokType::OpenCurly && open_curly_index < code[a].len() {
+                let con_val = code[a][open_curly_index].val.clone() + " ";
                 file.push_str(con_val.as_str());
+
                 open_curly_index += 1;
+            }
+
+            if open_curly_index == code[a].len() {
+                error("missing opening curly in else if statement");
             }
 
             file.push_str(") {\n");
 
-            let mut scope_content = String::from("");
+            let mut scope_content = "".to_string();
             write_file_content(
                 &mut scope_content,
                 &split_code(&code[a][open_curly_index + 2..code[a].len() - 1].to_vec())
             )?;
 
-            file.push_str(scope_content.as_str());
-            file.push_str("}\n\n");
+            file.push_str((scope_content + "}\n\n").as_str());
         }
         else if code[a][0].typ == TokType::Else {
-            file.push_str("else {");
+            if code[a].len() == 1 || code[a][1].typ != TokType::OpenCurly {
+                error("expected open curly bracket after 'else' keyword");
+            }
 
-            let mut scope_content = String::from("");
+            file.push_str("else {\n");
+
+            let mut scope_content = "".to_string();
             write_file_content(
                 &mut scope_content,
                 &split_code(&code[a][2..code[a].len() - 1].to_vec())
             )?;
 
-            file.push_str(scope_content.as_str());
-            file.push_str("}\n");
+            file.push_str((scope_content + "}\n\n").as_str());
         }
         else if code[a][0].typ == TokType::For {
             if code[a].len() == 1 || code[a][1].typ != TokType::Var {
@@ -196,28 +246,25 @@ fn write_file_content(file: &mut String, code: &Vec<Vec<Tok>>) -> std::io::Resul
                 error("expected open curly after array name");
             }
 
-            file.push_str(
-                format!("for (auto& {} : {}) {{\n",
-                    code[a][1].val, code[a][3].val).as_str()
-            );
+            file.push_str(format!(
+                "for (auto& {} : {}) {{\n",
+                code[a][1].val,
+                code[a][3].val
+            ).as_str());
 
-            let mut scope_content = String::from("");
+            let mut scope_content = "".to_string();
             write_file_content(
                 &mut scope_content,
                 &split_code(&code[a][5..code[a].len() - 1].to_vec())
             )?;
 
-            file.push_str(&scope_content);
-            file.push_str("}\n\n");
-        }
-        else if code[a][0].typ == TokType::Var && code[a][1].typ == TokType::Assign {
-            for tok in &code[a] {
-                file.push_str(tok.val.as_str());
-            }
-
-            file.push_str(";\n\n");
+            file.push_str((scope_content + "}\n\n").as_str());
         }
         else if code[a][0].typ == TokType::Var && code[a][1].typ == TokType::OpenBracket {
+            if code[a].len() == 2 {
+                error("missing closing bracket in function call");
+            }
+
             if code[a][0].val == "print" {
                 file.push_str("cout << ");
                 for b in 2..code[a].len() - 1 {
@@ -287,7 +334,7 @@ fn compiler(code: &mut Vec<Vec<Tok>>) -> std::io::Result<()> {
             out.write_all(format!("void {}", toks[1].val).as_bytes())?;
 
             let mut curly_index = 2;
-            while toks[curly_index].typ != TokType::OpenCurly {
+            while toks[curly_index].typ != TokType::OpenCurly && curly_index < toks.len() {
                 out.write_all(format!("{} ", toks[curly_index].val).as_bytes())?;
                 curly_index += 1;
             }
@@ -304,8 +351,7 @@ fn compiler(code: &mut Vec<Vec<Tok>>) -> std::io::Result<()> {
                 &split_code(&toks[curly_index + 1..toks.len() - 1].to_vec())
             )?;
 
-            out.write_all(scope_content.as_bytes())?;
-            out.write_all(b"}\n\n")?;
+            out.write_all((scope_content + "}\n\n").as_bytes())?;
         }
     }
 
@@ -314,8 +360,7 @@ fn compiler(code: &mut Vec<Vec<Tok>>) -> std::io::Result<()> {
     let mut content: String = "".to_string();
     write_file_content(&mut content, &code)?;
 
-    out.write_all(content.as_bytes())?;
-    out.write_all(b"}\n")?;
+    out.write_all((content + "}").as_bytes())?;
 
     Ok(())
 }

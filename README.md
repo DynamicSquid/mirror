@@ -1,2 +1,0 @@
-# mirror
-A transpiled language
