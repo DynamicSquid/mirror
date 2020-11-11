@@ -7,7 +7,7 @@ use std::io::BufRead;
 use std::io::Write;
 
 fn main() -> std::io::Result<()> {
-    let file = File::open("source.mir")?;
+    let file = File::open("../source.mir")?;
     let reader = BufReader::new(file);
 
     let mut toks = Vec::new();
