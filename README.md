@@ -6,6 +6,8 @@ A neat little language. Transpiles down to C++, statically typed, and strong. It
 
 To build it from source, you'll need a Rust compiler, a C++ compiler, and some way to run a Bash script. Or you could just use [repl.it](https://repl.it), which is what I used. Just import this GitHub project into repl.it and you're all set! Just make sure to create a new file called `source.mir` where you'll write your actual code.
 
+If you have a repl.it account, fork [this repl](https://repl.it/@DynamicSquid/Mirror#source.mir) and you can start coding right away!
+
 ## Syntax
 
 Mirror has a built in `print` function that acts as standard output.
