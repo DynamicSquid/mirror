@@ -13,7 +13,7 @@ If you have a repl.it account, fork [this repl](https://repl.it/@DynamicSquid/Mi
 Mirror has a built in `print` function that acts as standard output.
 
 ```
-print("Hello Mirror!\n")
+print("Hello Mirror!")
 ```
 
 Variables are created using the `set` keyword.
