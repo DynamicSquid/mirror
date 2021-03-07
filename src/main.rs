@@ -1,56 +1,42 @@
-include!("./lexer.rs");
-include!("./compiler.rs");
+mod mirror {
+    pub struct Error {
+        pub err_msg: String
+    }
 
-use std::fs::File;
-use std::io::BufReader;
-use std::io::BufRead;
-use std::io::Write;
-
-fn main() -> std::io::Result<()> {
-    let file = File::open("../source.mir")?;
-    let reader = BufReader::new(file);
-
-    let mut toks = Vec::new();
-
-    for line in reader.lines() {
-        let mut get_tokens = lex(&line.unwrap());
-        if !get_tokens.is_empty() {
-            toks.append(&mut get_tokens);
-            toks.push(Tok{
-                typ: TokType::Eol,
-                val: String::from("eol")
-            });
+    impl Error {
+        pub fn what(&self) -> String {
+            return format!("[ error ] - {}\n", self.err_msg);
         }
     }
+}
 
-    if toks.len() == 0 {
-        let mut out = File::create("out.cpp")?;
-        out.write_all(b"int main() {}")?;
-
-        return Ok(());
+fn front_end(args: &Vec<String>) -> Result<(), mirror::Error> {
+    if args.len() != 2 {
+        return Err(mirror::Error{
+            err_msg: String::from("expected two command line argument only()")
+        });
     }
 
-    let mut code = vec![Vec::new()];
+    let file = std::fs::File::open(args[1].clone());
+    let _file = match file {
+        Ok(file) => file,
+        Err(_error) => return Err(mirror::Error{
+            err_msg: format!("source file '{}' could not be opened", args[1])
+        })
+    };
+
+    return Ok(());
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
     
-    let mut curly_count = 0;
-    for tok in toks {
-        if tok.typ == TokType::Eol && curly_count == 0 {
-            code.push(Vec::new());
-            continue;
+    let run = front_end(&args);
+    let _run = match run {
+        Ok(run) => run,
+        Err(error) => {
+            print!("{}", error.what());
+            return;
         }
-
-        if tok.typ == TokType::OpenCurly {
-            curly_count += 1;
-        }
-        else if tok.typ == TokType::CloseCurly {
-            curly_count -= 1;
-        }
-
-        let len = code.len() - 1;
-        code[len].push(tok.clone());
-    }
-
-    compiler(&mut code)?;
-
-    Ok(())
+    };
 }
